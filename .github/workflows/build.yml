@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 # QuickMD has no remote dependencies — every job is a plain xcodebuild.
 # CODE_SIGNING_ALLOWED=NO because CI runners have no signing identity;
