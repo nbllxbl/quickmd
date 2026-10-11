@@ -1003,7 +1003,8 @@ struct MarkdownView: View {
 
             case .table(let headers, let rows, let alignments):
                 TableBlockView(headers: headers, rows: rows, alignments: alignments, theme: theme,
-                               fontScale: scale, searchText: searchText, focusedOccurrence: focusedOcc)
+                               fontScale: scale, searchText: searchText, focusedOccurrence: focusedOcc,
+                               onCopy: { copyToClipboard($0) })
                     .padding(.vertical, Metrics.tableOuterVerticalPadding)
 
             case .codeBlock(let code, let language):

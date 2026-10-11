@@ -39,6 +39,10 @@ struct TableBlockView: View, TableAlignmentProvider {
     var fontScale: CGFloat = 1.0
     var searchText: String = ""
     var focusedOccurrence: Int? = nil
+    var onCopy: ((String) -> Void)? = nil
+
+    @State private var isHovered = false
+    @State private var justCopied = false
 
     /// Cached renderer instance - created once on init, not on every body evaluation
     private let renderer: MarkdownRenderer
@@ -54,7 +58,8 @@ struct TableBlockView: View, TableAlignmentProvider {
     typealias Metrics = BlockLayout.Table
 
     init(headers: [String], rows: [[String]], alignments: [TextAlignment], theme: MarkdownTheme,
-         fontScale: CGFloat = 1.0, searchText: String = "", focusedOccurrence: Int? = nil) {
+         fontScale: CGFloat = 1.0, searchText: String = "", focusedOccurrence: Int? = nil,
+         onCopy: ((String) -> Void)? = nil) {
         self.headers = headers
         self.rows = rows
         self.alignments = alignments
@@ -62,6 +67,7 @@ struct TableBlockView: View, TableAlignmentProvider {
         self.fontScale = fontScale
         self.searchText = searchText
         self.focusedOccurrence = focusedOccurrence
+        self.onCopy = onCopy
         self.renderer = MarkdownRenderer(theme: theme, fontScale: fontScale)
         self.columnCount = max(headers.count, alignments.count, rows.map(\.count).max() ?? 0)
         self.showsHeader = headers.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -73,72 +79,172 @@ struct TableBlockView: View, TableAlignmentProvider {
         // Precompute per-cell occurrence offsets for focused highlighting
         let cellOffsets = computeCellOffsets()
 
-        VStack(spacing: 0) {
-            if showsHeader {
-                // Header row with inline dividers (no GeometryReader)
-                HStack(spacing: 0) {
-                    ForEach(0..<columnCount, id: \.self) { index in
-                        let header = headerCell(index)
-                        let rendered = renderer.renderInline(header)
-                        let localFocused = localFocusedOccurrence(cellOffset: cellOffsets.headerOffsets[index],
-                                                                   cellText: header)
-                        Text(searchText.isEmpty ? rendered : searchHighlight(rendered, term: searchText, focusedOccurrence: localFocused))
-                            .font(theme.fonts.swiftUI(size: Metrics.cellFontSize * fontScale, weight: .semibold))
-                            .foregroundColor(theme.textColor)
-                            .multilineTextAlignment(textAlignmentFor(index))
-                            .frame(maxWidth: .infinity, alignment: alignmentFor(index))
-                            .padding(.horizontal, Metrics.cellHorizontalPadding)
-                            .padding(.vertical, Metrics.headerCellVerticalPadding)
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                if showsHeader {
+                    // Header row with inline dividers (no GeometryReader)
+                    HStack(spacing: 0) {
+                        ForEach(0..<columnCount, id: \.self) { index in
+                            let header = headerCell(index)
+                            let rendered = renderer.renderInline(header)
+                            let localFocused = localFocusedOccurrence(cellOffset: cellOffsets.headerOffsets[index],
+                                                                       cellText: header)
+                            Text(searchText.isEmpty ? rendered : searchHighlight(rendered, term: searchText, focusedOccurrence: localFocused))
+                                .font(theme.fonts.swiftUI(size: Metrics.cellFontSize * fontScale, weight: .semibold))
+                                .foregroundColor(theme.textColor)
+                                .multilineTextAlignment(textAlignmentFor(index))
+                                .frame(maxWidth: .infinity, alignment: alignmentFor(index))
+                                .padding(.horizontal, Metrics.cellHorizontalPadding)
+                                .padding(.vertical, Metrics.headerCellVerticalPadding)
+                                .textSelection(.enabled)
 
-                        // Inline vertical divider (except after last column)
-                        if index < columnCount - 1 {
-                            Rectangle()
-                                .fill(theme.borderColor)
-                                .frame(width: Metrics.dividerWidth)
+                            // Inline vertical divider (except after last column)
+                            if index < columnCount - 1 {
+                                Rectangle()
+                                    .fill(theme.borderColor)
+                                    .frame(width: Metrics.dividerWidth)
+                            }
                         }
                     }
-                }
-                .background(theme.headerBackgroundColor)
+                    .background(theme.headerBackgroundColor)
 
-                // Header separator
-                Rectangle().fill(theme.borderColor).frame(height: Metrics.separatorHeight)
-            }
-
-            // Data rows with inline dividers
-            ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
-                HStack(spacing: 0) {
-                    ForEach(0..<columnCount, id: \.self) { colIndex in
-                        let cell = colIndex < row.count ? row[colIndex] : ""
-                        let rendered = renderer.renderInline(cell)
-                        let localFocused = localFocusedOccurrence(cellOffset: cellOffsets.rowOffsets[rowIndex][colIndex],
-                                                                   cellText: cell)
-                        Text(searchText.isEmpty ? rendered : searchHighlight(rendered, term: searchText, focusedOccurrence: localFocused))
-                            .font(theme.fonts.swiftUI(size: Metrics.cellFontSize * fontScale))
-                            .foregroundColor(theme.textColor)
-                            .multilineTextAlignment(textAlignmentFor(colIndex))
-                            .frame(maxWidth: .infinity, alignment: alignmentFor(colIndex))
-                            .padding(.horizontal, Metrics.cellHorizontalPadding)
-                            .padding(.vertical, Metrics.cellVerticalPadding)
-
-                        // Inline vertical divider (except after last column)
-                        if colIndex < columnCount - 1 {
-                            Rectangle()
-                                .fill(theme.borderColor)
-                                .frame(width: Metrics.dividerWidth)
-                        }
-                    }
-                }
-
-                // Row separator (except for last row)
-                if rowIndex < rows.count - 1 {
+                    // Header separator
                     Rectangle().fill(theme.borderColor).frame(height: Metrics.separatorHeight)
+                }
+
+                // Data rows with inline dividers
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                    HStack(spacing: 0) {
+                        ForEach(0..<columnCount, id: \.self) { colIndex in
+                            let cell = colIndex < row.count ? row[colIndex] : ""
+                            let rendered = renderer.renderInline(cell)
+                            let localFocused = localFocusedOccurrence(cellOffset: cellOffsets.rowOffsets[rowIndex][colIndex],
+                                                                       cellText: cell)
+                            Text(searchText.isEmpty ? rendered : searchHighlight(rendered, term: searchText, focusedOccurrence: localFocused))
+                                .font(theme.fonts.swiftUI(size: Metrics.cellFontSize * fontScale))
+                                .foregroundColor(theme.textColor)
+                                .multilineTextAlignment(textAlignmentFor(colIndex))
+                                .frame(maxWidth: .infinity, alignment: alignmentFor(colIndex))
+                                .padding(.horizontal, Metrics.cellHorizontalPadding)
+                                .padding(.vertical, Metrics.cellVerticalPadding)
+                                .textSelection(.enabled)
+
+                            // Inline vertical divider (except after last column)
+                            if colIndex < columnCount - 1 {
+                                Rectangle()
+                                    .fill(theme.borderColor)
+                                    .frame(width: Metrics.dividerWidth)
+                            }
+                        }
+                    }
+
+                    // Row separator (except for last row)
+                    if rowIndex < rows.count - 1 {
+                        Rectangle().fill(theme.borderColor).frame(height: Metrics.separatorHeight)
+                    }
+                }
+            }
+            .textSelection(.enabled)
+            .background(theme.backgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius)
+                .stroke(theme.borderColor, lineWidth: Metrics.borderWidth))
+
+            // Hover-to-reveal copy button
+            Button {
+                copyContent(markdownTableString())
+            } label: {
+                Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: BlockLayout.Code.copyButtonIconFontSize))
+                    .foregroundColor(justCopied ? .green : .secondary)
+                    .padding(BlockLayout.Code.copyButtonIconPadding)
+                    .background(theme.backgroundColor.opacity(0.85))
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .focusable(false)
+            .help("Copy table")
+            .accessibilityLabel("Copy table")
+            .opacity(isHovered || justCopied ? 1 : 0)
+            .padding(BlockLayout.Code.copyButtonOuterPadding)
+            .contextMenu {
+                Button("Copy as Markdown") {
+                    copyContent(markdownTableString())
+                }
+                Button("Copy as TSV (for Excel / Sheets)") {
+                    copyContent(tsvTableString())
                 }
             }
         }
-        .background(theme.backgroundColor)
-        .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius))
-        .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius)
-            .stroke(theme.borderColor, lineWidth: Metrics.borderWidth))
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+
+    // MARK: - Copy Helpers
+
+    private func copyContent(_ string: String) {
+        if let onCopy {
+            onCopy(string)
+        } else {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(string, forType: .string)
+        }
+        justCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            justCopied = false
+        }
+    }
+
+    private func markdownTableString() -> String {
+        guard columnCount > 0 else { return "" }
+        var lines: [String] = []
+
+        if showsHeader {
+            let headerCells = (0..<columnCount).map { i in
+                let cell = headerCell(i).trimmingCharacters(in: .whitespacesAndNewlines)
+                return cell.isEmpty ? " " : cell
+            }
+            lines.append("| " + headerCells.joined(separator: " | ") + " |")
+
+            let separatorCells = (0..<columnCount).map { i in
+                let align = i < alignments.count ? alignments[i] : .leading
+                switch align {
+                case .leading: return ":---"
+                case .center: return ":---:"
+                case .trailing: return "---:"
+                @unknown default: return "---"
+                }
+            }
+            lines.append("| " + separatorCells.joined(separator: " | ") + " |")
+        } else {
+            let emptyHeaders = Array(repeating: " ", count: columnCount)
+            lines.append("| " + emptyHeaders.joined(separator: " | ") + " |")
+            let separatorCells = (0..<columnCount).map { i in
+                let align = i < alignments.count ? alignments[i] : .leading
+                switch align {
+                case .leading: return ":---"
+                case .center: return ":---:"
+                case .trailing: return "---:"
+                @unknown default: return "---"
+                }
+            }
+            lines.append("| " + separatorCells.joined(separator: " | ") + " |")
+        }
+
+        for row in rows {
+            let rowCells = (0..<columnCount).map { colIndex in
+                let cell = (colIndex < row.count ? row[colIndex] : "").trimmingCharacters(in: .whitespacesAndNewlines)
+                return cell.isEmpty ? " " : cell
+            }
+            lines.append("| " + rowCells.joined(separator: " | ") + " |")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func tsvTableString() -> String {
+        DocumentCopyBuilder.tsv(headers: showsHeader ? headers : nil, rows: rows)
     }
 
     /// Header cell at index, or "" when the header row is shorter than the column count

@@ -35,8 +35,18 @@ jobs:
             -project QuickMD/QuickMD.xcodeproj \
             -scheme QuickMD \
             -configuration Release \
+            -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             build
+      - name: Package App
+        run: |
+          cd build/Build/Products/Release
+          zip -ry QuickMD.app.zip QuickMD.app
+      - name: Upload QuickMD.app Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuickMD-app
+          path: build/Build/Products/Release/QuickMD.app.zip
 
   build-appstore:
     name: Build Release (App Store flavor)
